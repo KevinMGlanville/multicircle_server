@@ -1,5 +1,5 @@
 /*
- * Author: Kevin Glanville
+ * @author: Kevin Glanville
  * Websocket server manages multicircle games
  * 
  */
@@ -16,8 +16,9 @@ var in_match = [];
 wss.on('connection', function (new_ws) {
 
     // connection origin - incorrectly shows host, not remote connect
-    var origin_index = new_ws['upgradeReq']['rawHeaders'].indexOf('Origin');
-    console.log('New connection from: ' + new_ws['upgradeReq']['rawHeaders'][origin_index+1]);
+    //var origin_index = new_ws['upgradeReq']['rawHeaders'].indexOf('Origin');
+    //var conn_key = new_ws._socket;
+    console.log('New connection from: ' + new_ws._socket.server._connectionKey);
 
     var message_object = new Object();
     message_object['message'] = "waiting";
@@ -41,59 +42,43 @@ wss.on('connection', function (new_ws) {
         }
 
         // send unallocated to waiting_randoms or waiting_named
-        if(message_object['message'] == 'join') {
-            if (message_object['game'] != 'random') {
-                // if waiting_named doesn't have the game, send the player to waiting_named, else match 'em up
-                if (!waiting_named[message_object['game']]) {
-                    new_ws['game'] = message_object['game'];
-                    waiting_named[message_object['game']] = new_ws;
-                    unallocated.splice(unallocated.indexOf(new_ws));
+        // if waiting_named doesn't have the game, send the player to waiting_named, else match 'em up
+        if(message_object['message'] == 'join'){
 
-                    new_ws.on('close', function () {
-                        if (waiting_named[message_object['game']] == new_ws) {
-                            delete waiting_named[message_object['game']];
-                            new_ws.close();
-                            console.log("Named matches - waiting player left. Named match players waiting: " + waiting_named.length);
-                        }
-                    });
-                }
-                else {
-                    var player1 = waiting_named[message_object['game']];
-                    var player2 = new_ws;
-
-                    // remove players from waiting
-                    unallocated.splice(unallocated.indexOf(new_ws));
-                    unallocated.splice(unallocated.indexOf(message_object['game']));
-                    match_players(player1, player2);
-                }
+            if(waiting_named[new_ws['game']] == new_ws){
+                var message_object = new Object();
+                message_object['message'] = "disconnect";
+                new_ws.send(JSON.stringify(message_object), function(error){});
+                new_ws.close();
             }
-            else{
+
+            if (!waiting_named[message_object['game']]) {
+                new_ws['game'] = message_object['game'];
+                waiting_named[message_object['game']] = new_ws;
                 unallocated.splice(unallocated.indexOf(new_ws));
-                waiting_randoms.unshift(new_ws);
-                console.log("Random queued. Unallocated: players: " + unallocated.length + " Randoms waiting: " + waiting_randoms.length);
 
                 new_ws.on('close', function () {
-                    if (waiting_randoms.indexOf(new_ws) > -1) {
-                        waiting_randoms.splice(waiting_randoms.indexOf(new_ws));
+                    // remove player from waiting list
+                    if (waiting_named[message_object['game']] == new_ws) {
+                        delete waiting_named[message_object['game']];
                         new_ws.close();
-                        console.log("Unallocated player left. Unallocated players: " + unallocated.length);
+                        var count = 0;
+                        for(var prop in waiting_named) count++;
+                        console.log("Named matches - waiting player left. Named match players waiting: " + count);
                     }
                 });
             }
+            else {
+                var player1 = waiting_named[message_object['game']];
+                var player2 = new_ws;
+
+                // remove players from waiting
+                unallocated.splice(unallocated.indexOf(new_ws));
+                unallocated.splice(unallocated.indexOf(message_object['game']));
+                delete waiting_named[message_object['game']];
+                match_players(player1, player2);
+            }
         }
-
-        // assign waiting randoms until there is only one in
-        while(waiting_randoms.length > 1){
-            // assign opponents (add to players[] for convenience)
-            var player1 = waiting_randoms[waiting_randoms.length-1];
-            var player2 = waiting_randoms[waiting_randoms.length-2];
-
-            // remove players from waiting
-            waiting_randoms.splice(waiting_randoms.indexOf(waiting_randoms.length-1));
-            waiting_randoms.splice(waiting_randoms.indexOf(waiting_randoms.length-2));
-            match_players(player1, player2);
-        }
-
     });
 
     new_ws.on('close', function () {
