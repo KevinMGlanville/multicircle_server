@@ -1,25 +1,28 @@
-/*
- * @author: Kevin Glanville
+/**
  * Websocket server manages multicircle games
- * 
+ *
+ * @author: Kevin Glanville
  */
 
+// require the einaros websocket library and start listening
 var WebSocketServer = require('ws').Server;
 var wss = new WebSocketServer({ port: 8080 });
 console.log("Listening on port 8080");
+
+// new connections which aren't waiting for a game
 var unallocated = [];
-var waiting_randoms = [];
+// connections which have provided a game name to join
 var waiting_named = new Object();
+// connections which have been matched
 var in_match = [];
 
 // On connect, set up comms; wait for game name message before queueing the player
 wss.on('connection', function (new_ws) {
 
-    // connection origin - incorrectly shows host, not remote connect
-    //var origin_index = new_ws['upgradeReq']['rawHeaders'].indexOf('Origin');
-    //var conn_key = new_ws._socket;
-    console.log('New connection from: ' + new_ws._socket.server._connectionKey);
+    // connection origin
+    console.log('New connection from: ' + new_ws.upgradeReq.connection.remoteAddress);
 
+    // object containing information to/from the clients
     var message_object = new Object();
     message_object['message'] = "waiting";
     new_ws.send(JSON.stringify(message_object), function(error){});
@@ -28,9 +31,7 @@ wss.on('connection', function (new_ws) {
     unallocated.unshift(new_ws);
     console.log('Unallocated connection. Total unallocated: ' + unallocated.length);
 
-    // send players to the correct list of players
-    // unallocated TO waiting_randoms OR waiting_named
-    // if player is not already in one of those lists
+    // handle messages from connections
     new_ws.on('message', function(message){
         var message_object = new Object();
 
@@ -41,8 +42,7 @@ wss.on('connection', function (new_ws) {
 
         }
 
-        // send unallocated to waiting_randoms or waiting_named
-        // if waiting_named doesn't have the game, send the player to waiting_named, else match 'em up
+        // if the game isn't in waiting_named, put the connection there until another connection requests the game
         if(message_object['message'] == 'join'){
 
             if(waiting_named[new_ws['game']] == new_ws){
@@ -62,12 +62,14 @@ wss.on('connection', function (new_ws) {
                     if (waiting_named[message_object['game']] == new_ws) {
                         delete waiting_named[message_object['game']];
                         new_ws.close();
+                        // counting is slightly messy because javascript doesn't support associative arrays
                         var count = 0;
                         for(var prop in waiting_named) count++;
                         console.log("Named matches - waiting player left. Named match players waiting: " + count);
                     }
                 });
             }
+            // match players if game exists
             else {
                 var player1 = waiting_named[message_object['game']];
                 var player2 = new_ws;
@@ -81,6 +83,8 @@ wss.on('connection', function (new_ws) {
         }
     });
 
+    // if the connection was still in unallocated on connection close, remove the connection
+    // connections closed in other states will have different actions
     new_ws.on('close', function () {
         if(unallocated.indexOf(new_ws) > -1){
             unallocated.splice(unallocated.indexOf(new_ws));
@@ -90,9 +94,9 @@ wss.on('connection', function (new_ws) {
     });
 });
 
-
 // match 2 players and let them know they're playing
 function match_players(player1, player2){
+    // players in the game
     var players = [];
     players.unshift(player1);
     players.unshift(player2);
@@ -129,7 +133,6 @@ function match_players(player1, player2){
 
     // log players matched
     console.log('Players matched. Unallocated players: ' + unallocated.length);
-    console.log('Players matched. Randoms waiting: ' + waiting_randoms.length);
     console.log('Players matched. Players in matches: ' + in_match.length);
 
     // notify players of their number
